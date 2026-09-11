@@ -1,0 +1,7 @@
+#ifndef YMODEM_HELPER_WINDOW_CHECKER_COMMON_H
+#define YMODEM_HELPER_WINDOW_CHECKER_COMMON_H
+
+#include <assert.h>
+#include <string.h>
+
+#endif /* YMODEM_HELPER_WINDOW_CHECKER_COMMON_H */
