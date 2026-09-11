@@ -96,27 +96,27 @@ The application must provide the transport and data-handling functions used belo
 #include "ymodem_helper.h"
 
 /* Application-provided functions. */
-bool transport_try_read(uint8_t *pchByte);
-bool transport_try_write(uint8_t chByte);
-bool transport_tx_idle(void);
-void application_begin_file(uint8_t *pchData, size_t uSize);
-void application_write_data(uint8_t *pchData, size_t uSize);
-void application_end_transfer(void);
+bool transport_try_read         (uint8_t *pchByte);
+bool transport_try_write        (uint8_t chByte);
+bool transport_tx_idle          (void);
+void application_begin_file     (uint8_t *pchData, size_t uSize);
+void application_write_data     (uint8_t *pchData, size_t uSize);
+void application_end_transfer   (void);
 void application_cancel_transfer(void);
-void application_report_error(void);
+void application_report_error   (void);
 void application_run_other_tasks(void);
 
-static ymodem_t s_tReceiver;
-static ymodem_queue_t s_tInputQueue;
-static ymodem_queue_t s_tOutputQueue;
-static uint8_t s_chInputBuffer[2048];
-static uint8_t s_chOutputBuffer[64];
+static ymodem_t         s_tReceiver;
+static ymodem_queue_t   s_tInputQueue;
+static ymodem_queue_t   s_tOutputQueue;
+static uint8_t          s_chInputBuffer[2048];
+static uint8_t          s_chOutputBuffer[64];
 
-static uint8_t s_chPendingInput;
-static uint8_t s_chPendingOutput;
-static bool s_bInputPending;
-static bool s_bOutputPending;
-static bool s_bSessionFinished;
+static uint8_t  s_chPendingInput;
+static uint8_t  s_chPendingOutput;
+static bool     s_bInputPending;
+static bool     s_bOutputPending;
+static bool     s_bSessionFinished;
 
 static void report_handler(
     void *pObj,
@@ -167,11 +167,9 @@ static void receiver_init(void)
     s_bOutputPending = false;
     s_bSessionFinished = false;
 
-    ymodem_queue_init(
-        &s_tInputQueue, s_chInputBuffer, sizeof(s_chInputBuffer));
-    ymodem_queue_init(
-        &s_tOutputQueue, s_chOutputBuffer, sizeof(s_chOutputBuffer));
-    ymodem_helper_init(&s_tReceiver, &tConfig);
+    ymodem_queue_init   (&s_tInputQueue, s_chInputBuffer, sizeof(s_chInputBuffer));
+    ymodem_queue_init   (&s_tOutputQueue, s_chOutputBuffer, sizeof(s_chOutputBuffer));
+    ymodem_helper_init  (&s_tReceiver, &tConfig);
 }
 
 static void receiver_poll(void)
@@ -180,16 +178,14 @@ static void receiver_poll(void)
         s_bInputPending = transport_try_read(&s_chPendingInput);
     }
 
-    if (s_bInputPending &&
-        ymodem_queue_write_byte(&s_tInputQueue, s_chPendingInput)) {
+    if (s_bInputPending && ymodem_queue_write_byte(&s_tInputQueue, s_chPendingInput)) {
         s_bInputPending = false;
     }
 
     (void)ymodem_helper_task(&s_tReceiver);
 
     if (!s_bOutputPending) {
-        s_bOutputPending = ymodem_queue_read_byte(
-            &s_tOutputQueue, &s_chPendingOutput);
+        s_bOutputPending = ymodem_queue_read_byte(&s_tOutputQueue, &s_chPendingOutput);
     }
 
     if (s_bOutputPending && transport_try_write(s_chPendingOutput)) {
@@ -199,10 +195,7 @@ static void receiver_poll(void)
 
 static bool receiver_finished(void)
 {
-    return s_bSessionFinished &&
-           !s_bOutputPending &&
-           (0u == ymodem_queue_length(&s_tOutputQueue)) &&
-           transport_tx_idle();
+    return (s_bSessionFinished && !s_bOutputPending && (0u == ymodem_queue_length(&s_tOutputQueue)) && transport_tx_idle());
 }
 
 int main(void)
