@@ -88,58 +88,132 @@ Use `YMODEM_COMPLETE`, not the return value of `ymodem_helper_task()`, to detect
 
 The input queue must hold at least 133 bytes for 128-byte frames or 1029 bytes for 1K frames.
 
-## Pseudocode Example
+## C Pseudocode Example
 
-`transport_try_read()` and `transport_try_write()` represent application-provided transport functions.
+The application must provide the transport and data-handling functions used below.
 
-```text
-receiver: ymodem_t
-input_queue: ymodem_queue_t
-output_queue: ymodem_queue_t
-input_buffer: byte[2048]
-output_buffer: byte[64]
-transfer_complete = false
-pending_input = NONE
-pending_output = NONE
+```c
+#include "ymodem_helper.h"
 
-function report_handler(context, report, data, size):
-    if report == YMODEM_NEW_FRAME:
-        process_or_copy(data, size)
-    else if report == YMODEM_COMPLETE:
-        transfer_complete = true
+/* Application-provided functions. */
+bool transport_try_read(uint8_t *pchByte);
+bool transport_try_write(uint8_t chByte);
+bool transport_tx_idle(void);
+void application_begin_file(uint8_t *pchData, size_t uSize);
+void application_write_data(uint8_t *pchData, size_t uSize);
+void application_end_transfer(void);
+void application_cancel_transfer(void);
+void application_report_error(void);
+void application_run_other_tasks(void);
 
-ymodem_queue_init(&input_queue, input_buffer, size(input_buffer))
-ymodem_queue_init(&output_queue, output_buffer, size(output_buffer))
+static ymodem_t s_tReceiver;
+static ymodem_queue_t s_tInputQueue;
+static ymodem_queue_t s_tOutputQueue;
+static uint8_t s_chInputBuffer[2048];
+static uint8_t s_chOutputBuffer[64];
 
-config = {
-    ptIn: &input_queue,
-    ptOut: &output_queue,
-    fnHandler: report_handler,
-    pObj: NULL
+static uint8_t s_chPendingInput;
+static uint8_t s_chPendingOutput;
+static bool s_bInputPending;
+static bool s_bOutputPending;
+static bool s_bSessionFinished;
+
+static void report_handler(
+    void *pObj,
+    ymodem_report_t tReport,
+    uint8_t *pchData,
+    size_t uSize)
+{
+    (void)pObj;
+
+    switch (tReport) {
+        case YMODEM_START:
+            application_begin_file(pchData, uSize);
+            break;
+
+        case YMODEM_NEW_FRAME:
+            application_write_data(pchData, uSize);
+            break;
+
+        case YMODEM_COMPLETE:
+            s_bSessionFinished = true;
+            application_end_transfer();
+            break;
+
+        case YMODEM_CANCELLED:
+            s_bSessionFinished = true;
+            application_cancel_transfer();
+            break;
+
+        case YMODEM_ERROR:
+            application_report_error();
+            break;
+
+        case YMODEM_TIME_OUT:
+            break;
+    }
 }
 
-ymodem_helper_init(&receiver, &config)
+static void receiver_init(void)
+{
+    ymodem_helper_cfg_t tConfig = {
+        .ptIn = &s_tInputQueue,
+        .ptOut = &s_tOutputQueue,
+        .fnHandler = report_handler,
+        .pObj = NULL,
+    };
 
-loop forever:
-    if pending_input == NONE:
-        pending_input = transport_try_read()
+    s_bInputPending = false;
+    s_bOutputPending = false;
+    s_bSessionFinished = false;
 
-    if pending_input != NONE:
-        if ymodem_queue_write_byte(&input_queue, pending_input):
-            pending_input = NONE
+    ymodem_queue_init(
+        &s_tInputQueue, s_chInputBuffer, sizeof(s_chInputBuffer));
+    ymodem_queue_init(
+        &s_tOutputQueue, s_chOutputBuffer, sizeof(s_chOutputBuffer));
+    ymodem_helper_init(&s_tReceiver, &tConfig);
+}
 
-    ymodem_helper_task(&receiver)
+static void receiver_poll(void)
+{
+    if (!s_bInputPending) {
+        s_bInputPending = transport_try_read(&s_chPendingInput);
+    }
 
-    if pending_output == NONE:
-        if ymodem_queue_read_byte(&output_queue, &byte):
-            pending_output = byte
+    if (s_bInputPending &&
+        ymodem_queue_write_byte(&s_tInputQueue, s_chPendingInput)) {
+        s_bInputPending = false;
+    }
 
-    if pending_output != NONE:
-        if transport_try_write(pending_output):
-            pending_output = NONE
+    (void)ymodem_helper_task(&s_tReceiver);
 
-    if transfer_complete and
-       ymodem_queue_length(&output_queue) == 0 and
-       pending_output == NONE:
-        break
+    if (!s_bOutputPending) {
+        s_bOutputPending = ymodem_queue_read_byte(
+            &s_tOutputQueue, &s_chPendingOutput);
+    }
+
+    if (s_bOutputPending && transport_try_write(s_chPendingOutput)) {
+        s_bOutputPending = false;
+    }
+}
+
+static bool receiver_finished(void)
+{
+    return s_bSessionFinished &&
+           !s_bOutputPending &&
+           (0u == ymodem_queue_length(&s_tOutputQueue)) &&
+           transport_tx_idle();
+}
+
+int main(void)
+{
+    receiver_init();
+
+    while (!receiver_finished()) {
+        receiver_poll();
+        application_run_other_tasks();
+    }
+
+    return 0;
+}
 ```
